@@ -105,7 +105,9 @@ final class Camera: NSObject, ARSessionDelegate {
         let t = obs.alignmentTransform
         let w = current.extent.width, h = current.extent.height
         // Core Image's y axis points up; the grid's points down.
-        let dx = t.tx / w * 1000, dy = -t.ty / h * 1000
+        let fx = UserDefaults.standard.bool(forKey: "flipX") ? -1.0 : 1.0
+        let fy = UserDefaults.standard.bool(forKey: "flipY") ? -1.0 : 1.0
+        let dx = fx * t.tx / w * 1000, dy = fy * -t.ty / h * 1000
         guard abs(dx) < 400, abs(dy) < 400 else { return }  // ignore wild matches (e.g. hand filling the view)
         DispatchQueue.main.async { self.offset = CGPoint(x: dx, y: dy) }
     }
@@ -132,7 +134,8 @@ final class Camera: NSObject, ARSessionDelegate {
     /// Where a button is now: its photo box shifted by how far the picture moved.
     func box(for id: String) -> [Double]? {
         guard let b = photoBoxes[id] else { return nil }
-        let dx = Double(offset.x), dy = Double(offset.y)
+        let follow = UserDefaults.standard.object(forKey: "followMotion") as? Bool ?? true
+        let dx = follow ? Double(offset.x) : 0, dy = follow ? Double(offset.y) : 0
         return [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy]
     }
 }

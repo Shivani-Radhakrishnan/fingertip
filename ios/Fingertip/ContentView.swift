@@ -21,6 +21,9 @@ struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var typedGoal = ""
     @State private var showSettings = false
+    @AppStorage("flipX") private var flipX = false
+    @AppStorage("flipY") private var flipY = false
+    @AppStorage("followMotion") private var followMotion = true
 
     var body: some View {
         VStack(spacing: 12) {
@@ -68,6 +71,9 @@ struct ContentView: View {
                 TextField("Backend URL", text: $model.backendURL)
                     .textFieldStyle(.roundedBorder).keyboardType(.URL).autocorrectionDisabled()
                 Toggle("Detailed speech", isOn: $model.verbose)
+                Toggle("Flip motion left/right", isOn: $flipX)
+                Toggle("Flip motion up/down", isOn: $flipY)
+                Toggle("Follow motion", isOn: $followMotion)
             }
         }
         .padding()
