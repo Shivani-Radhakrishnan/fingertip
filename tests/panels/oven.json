@@ -1,0 +1,6 @@
+{"note": "Hand-labelled. Dishwasher-style touch strip, angled and partly out of focus; only the clearly visible controls are labelled.",
+ "buttons": [
+  {"label": "Power", "aliases": ["power", "on/off"], "icon": true},
+  {"label": "Delay 3h", "aliases": ["3h", "3 h", "3 hour"], "icon": false},
+  {"label": "Delay 6h", "aliases": ["6h", "6 h", "6 hour"], "icon": false},
+  {"label": "Delay 9h", "aliases": ["9h", "9 h", "9 hour"], "icon": false}]}

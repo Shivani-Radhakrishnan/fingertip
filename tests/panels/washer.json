@@ -1,0 +1,7 @@
+{"note": "Hand-labelled. Ariston washer, mostly icon-only controls.",
+ "buttons": [
+  {"label": "Prewash", "aliases": ["prewash", "pre-wash", "pre wash"], "icon": true},
+  {"label": "Delay start", "aliases": ["delay", "timer", "time", "speed", "quick", "express"], "icon": true},
+  {"label": "Program dial", "aliases": ["program", "dial", "knob", "selector", "cycle"], "icon": false},
+  {"label": "Cancel/Reset", "aliases": ["cancel", "reset", "clear", "stop"], "icon": true},
+  {"label": "Start/Pause", "aliases": ["start", "pause", "play"], "icon": true}]}

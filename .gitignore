@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+backend/.env
+backend/calls.jsonl
+*.xcuserstate
+xcuserdata/
+DerivedData/
+devices.json
+tests/out/

@@ -1,0 +1,21 @@
+name: Fingertip
+options:
+  bundleIdPrefix: com.shivaniradhakrishnan
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: 3438Q3HF53
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+targets:
+  Fingertip:
+    type: application
+    platform: iOS
+    sources: [Fingertip]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shivaniradhakrishnan.Fingertip
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_FILE: Fingertip/Info.plist
+        GENERATE_INFOPLIST_FILE: NO

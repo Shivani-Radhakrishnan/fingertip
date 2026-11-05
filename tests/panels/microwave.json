@@ -1,0 +1,9 @@
+{"note": "Hand-labelled by looking at the photo. Korean microwave; the right edge is cut off.",
+ "buttons": [
+  {"label": "Weight/Defrost", "aliases": ["무게/해동", "weight", "defrost"], "icon": false},
+  {"label": "Time/Reservation", "aliases": ["시간/예약", "time", "reserv", "timer", "clock"], "icon": false},
+  {"label": "Auto cook", "aliases": ["auto", "A-1", "menu", "자동"], "icon": false},
+  {"label": "Start 60s/Confirm", "aliases": ["시작", "start", "confirm"], "icon": false},
+  {"label": "Microwave power", "aliases": ["전자레인지", "microwave", "power level", "power"], "icon": false},
+  {"label": "Stop/Cancel", "aliases": ["정지", "취소", "stop", "cancel"], "icon": false},
+  {"label": "Dial", "aliases": ["dial", "knob", "시간·무게", "time/weight"], "icon": false}]}

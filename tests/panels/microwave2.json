@@ -1,0 +1,5 @@
+{"note": "Hand-labelled. Two dials with icon-only markings and a door-release button.",
+ "buttons": [
+  {"label": "Power level dial", "aliases": ["power", "level", "defrost", "dial", "knob", "upper"], "icon": true},
+  {"label": "Timer dial", "aliases": ["timer", "time", "minute", "lower"], "icon": false},
+  {"label": "Door release", "aliases": ["door", "release", "open"], "icon": false}]}

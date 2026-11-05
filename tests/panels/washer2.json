@@ -1,0 +1,9 @@
+{"note": "Hand-labelled. Heran top-loader, Chinese labels.",
+ "buttons": [
+  {"label": "Function", "aliases": ["功能", "function", "mode"], "icon": false},
+  {"label": "Water level", "aliases": ["水位", "water"], "icon": false},
+  {"label": "Delay/Reserve", "aliases": ["預約", "delay", "reserv", "schedul", "timer"], "icon": false},
+  {"label": "Course", "aliases": ["行程", "course", "cycle", "program"], "icon": false},
+  {"label": "Tub clean", "aliases": ["槽洗淨", "tub", "clean"], "icon": false},
+  {"label": "Power", "aliases": ["電源", "power", "on/off"], "icon": true},
+  {"label": "Start/Pause", "aliases": ["啟動", "暫停", "start", "pause", "play"], "icon": true}]}
