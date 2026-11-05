@@ -26,7 +26,13 @@ struct ContentView: View {
         VStack(spacing: 12) {
             VStack(spacing: 12) {
                 ZStack {
-                    CameraPreview(session: model.camera.session)
+                    // The camera image itself, so the outlines are drawn on exactly the
+                    // picture the guidance measures.
+                    if let img = model.preview {
+                        Image(uiImage: img).resizable()
+                    } else {
+                        Color.black
+                    }
                     Overlay(boxes: model.liveBoxes, target: model.targetBox, tip: model.tip)
                 }
                 // ARKit frames are 3:4 portrait; the view must match or the outlines drift.

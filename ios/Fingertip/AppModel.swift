@@ -14,6 +14,7 @@ final class AppModel: ObservableObject {
     @Published var plan: Plan?
     @Published var stepIndex = 0
     @Published var tip: CGPoint?
+    @Published var preview: UIImage?
     @AppStorage("backendURL") var backendURL = "http://192.168.1.89:8000"
     @AppStorage("verbose") var verbose = false
 
@@ -40,6 +41,7 @@ final class AppModel: ObservableObject {
                                                          options: [.defaultToSpeaker, .duckOthers, .allowBluetooth])
         try? AVAudioSession.sharedInstance().setActive(true)
         camera.onFingertip = { [weak self] tip in self?.onFingertip(tip) }
+        camera.onPreview = { [weak self] img in self?.preview = img }
         camera.start()
         listener.onPartial = { [weak self] text in self?.heard = text }
         listener.onFinal = { [weak self] text in self?.handleUtterance(text) }

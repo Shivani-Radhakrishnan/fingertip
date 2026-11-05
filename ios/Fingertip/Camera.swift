@@ -2,18 +2,18 @@ import ARKit
 import UIKit
 import Vision
 
-/// Camera, fingertip tracking and button anchoring, all on the phone.
+/// Camera, fingertip tracking and button following, all on the phone.
 ///
-/// ARKit tracks where the phone is in the room. When the panel is read, each
-/// button's position is pinned to a 3D point on the panel surface (a raycast
-/// into ARKit's estimate of the scene). Every frame those points are projected
-/// back into the current image, so the outlines stay on the real buttons even
-/// if the phone moves, and the hand covering the glossy panel doesn't matter
-/// because ARKit tracks the whole room, not just the panel.
-/// If a raycast finds no surface, that button falls back to its photo position,
-/// which stays valid as long as the phone doesn't move (phone on a stand).
+/// Everything uses ONE coordinate space: the upright camera image on a 0-1000
+/// grid (origin top-left). The panel photo, the fingertip, the on-screen preview
+/// and the button boxes all come from the same camera frames, so what the user
+/// (or a sighted helper) sees is exactly what the guidance uses.
 ///
-/// All coordinates are on a 0-1000 grid of the upright (portrait) image, origin top-left.
+/// Following the phone's motion: every few frames the current image is matched
+/// against the scan photo (Vision translational image registration), and the
+/// button boxes are shifted by however much the picture moved. This handles
+/// hand shake and small moves without needing a surface for 3D tracking, which
+/// glossy black panels don't give.
 final class Camera: NSObject, ARSessionDelegate {
     let session = ARSession()
     private let handRequest: VNDetectHumanHandPoseRequest = {
@@ -23,25 +23,29 @@ final class Camera: NSObject, ARSessionDelegate {
     }()
     private let visionQueue = DispatchQueue(label: "vision")
     private var busy = false
+    private var frameCount = 0
     private var latestFrame: ARFrame?
-    /// The frame the last panel photo came from: buttons must be pinned using the
-    /// camera pose at photo time, not after the ~20 s it takes to read the panel.
-    private var scanFrame: ARFrame?
     private let context = CIContext()
 
     /// Called on the main thread with the index fingertip, or nil if no hand is visible.
     var onFingertip: ((CGPoint?) -> Void)?
+    /// Called on the main thread with a small upright preview image (~10 per second).
+    var onPreview: ((UIImage) -> Void)?
     private(set) var handVisible = false
 
-    private struct Anchor { let center: simd_float3; let corner1: simd_float3; let corner2: simd_float3 }
-    private var anchors: [String: Anchor] = [:]
+    // Motion following
+    private var reference: CIImage?        // downscaled scan photo
+    private var offset = CGPoint.zero      // how far the picture moved since the scan, on the 0-1000 grid
     private var photoBoxes: [String: [Double]] = [:]
+    private static let smallScale: CGFloat = 0.25
 
     func start() {
-        let config = ARWorldTrackingConfiguration()
-        config.planeDetection = [.vertical, .horizontal]
         session.delegate = self
-        session.run(config)
+        session.run(ARWorldTrackingConfiguration())
+    }
+
+    private func upright(_ frame: ARFrame) -> CIImage {
+        CIImage(cvPixelBuffer: frame.capturedImage).oriented(.right)
     }
 
     // MARK: frames
@@ -50,116 +54,85 @@ final class Camera: NSObject, ARSessionDelegate {
         latestFrame = frame
         guard !busy else { return }  // skip frames while Vision is working: no backlog, no lag
         busy = true
-        let buffer = frame.capturedImage
+        frameCount += 1
+        let n = frameCount
         visionQueue.async { [weak self] in
             guard let self else { return }
-            let handler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .right)
+            let image = self.upright(frame)
+            let handler = VNImageRequestHandler(ciImage: image, options: [:])
             try? handler.perform([self.handRequest])
             var tip: CGPoint?
             let hand = self.handRequest.results?.first
-            if let hand, let p = try? hand.recognizedPoint(.indexTip), p.confidence > 0.5 {
-                tip = CGPoint(x: p.location.x * 1000, y: (1 - p.location.y) * 1000)  // flip to top-left origin
+            if let hand {
+                // Prefer the index tip; fall back to the index's middle joints when the tip is unsure.
+                for j: VNHumanHandPoseObservation.JointName in [.indexTip, .indexDIP, .indexPIP] {
+                    if let p = try? hand.recognizedPoint(j), p.confidence > 0.3 {
+                        tip = CGPoint(x: p.location.x * 1000, y: (1 - p.location.y) * 1000)
+                        break
+                    }
+                }
             }
-            let visible = hand != nil
+            if n % 4 == 0 { self.updateOffset(image) }
+            let preview: UIImage? = n % 3 == 0 ? self.previewImage(image) : nil
             DispatchQueue.main.async {
-                self.handVisible = visible
+                self.handVisible = hand != nil
                 self.busy = false
                 self.onFingertip?(tip)
+                if let preview { self.onPreview?(preview) }
             }
         }
     }
 
-    /// The current frame as an upright JPEG: the same picture fingertips are tracked in.
+    private func small(_ image: CIImage) -> CIImage {
+        let s = image.transformed(by: CGAffineTransform(scaleX: Camera.smallScale, y: Camera.smallScale))
+        return s.transformed(by: CGAffineTransform(translationX: -s.extent.origin.x, y: -s.extent.origin.y))
+    }
+
+    private func previewImage(_ image: CIImage) -> UIImage? {
+        let s = image.transformed(by: CGAffineTransform(scaleX: 0.4, y: 0.4))
+        guard let cg = context.createCGImage(s, from: s.extent) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+
+    /// Match the current picture against the scan photo and remember the shift.
+    private func updateOffset(_ image: CIImage) {
+        guard let reference else { return }
+        let current = small(image)
+        let request = VNTranslationalImageRegistrationRequest(targetedCIImage: reference)
+        let handler = VNImageRequestHandler(ciImage: current, options: [:])
+        guard (try? handler.perform([request])) != nil,
+              let obs = request.results?.first as? VNImageTranslationAlignmentObservation else { return }
+        let t = obs.alignmentTransform
+        let w = current.extent.width, h = current.extent.height
+        // Core Image's y axis points up; the grid's points down.
+        let dx = t.tx / w * 1000, dy = -t.ty / h * 1000
+        guard abs(dx) < 400, abs(dy) < 400 else { return }  // ignore wild matches (e.g. hand filling the view)
+        DispatchQueue.main.async { self.offset = CGPoint(x: dx, y: dy) }
+    }
+
+    /// The current frame as an upright JPEG. For a scan, it also becomes the
+    /// reference picture that motion is measured against.
     func snapshot(forScan: Bool = false) -> Data? {
         guard let frame = latestFrame else { return nil }
-        if forScan { scanFrame = frame }
-        let ci = CIImage(cvPixelBuffer: frame.capturedImage).oriented(.right)
-        guard let cg = context.createCGImage(ci, from: ci.extent) else { return nil }
+        let image = upright(frame)
+        if forScan {
+            reference = small(image)
+            offset = .zero
+        }
+        guard let cg = context.createCGImage(image, from: image.extent) else { return nil }
         return UIImage(cgImage: cg).jpegData(compressionQuality: 0.85)
     }
 
-    // MARK: anchoring
+    // MARK: boxes
 
-    /// Pin each button (boxes on the 0-1000 grid of the scanned photo) to the panel surface.
     func anchor(buttons: [PanelButton]) {
-        anchors = [:]
-        photoBoxes = [:]
-        trackingOK = false
-        for b in buttons { photoBoxes[b.id] = b.box }
-        guard let frame = scanFrame ?? latestFrame else { return }
-        let size = portraitSize(frame)
-        // Distance to the panel: median of raycast hits at button centers (glossy
-        // panels often give none), else 40 cm. All buttons then sit on ONE flat
-        // plane facing the camera at that distance, so they move consistently.
-        let camPos = simd_float3(frame.camera.transform.columns.3.x, frame.camera.transform.columns.3.y,
-                                 frame.camera.transform.columns.3.z)
-        let depths = buttons.compactMap { b in
-            hit(CGPoint(x: (b.box[0] + b.box[2]) / 2, y: (b.box[1] + b.box[3]) / 2), frame)
-        }.map { simd_distance($0, camPos) }.filter { $0 > 0.1 && $0 < 2.0 }
-        let depth = depths.isEmpty ? 0.4 : depths.sorted()[depths.count / 2]
-        var plane = matrix_identity_float4x4
-        plane.columns.3.z = -depth
-        let tilt = simd_float4x4(simd_quatf(angle: .pi / 2, axis: [1, 0, 0]))  // x-z plane faces the camera
-        let planeTransform = frame.camera.transform * plane * tilt
-        func onPlane(_ p: CGPoint) -> simd_float3? {
-            frame.camera.unprojectPoint(CGPoint(x: p.x / 1000 * size.width, y: p.y / 1000 * size.height),
-                                        ontoPlane: planeTransform, orientation: .portrait, viewportSize: size)
-        }
-        for b in buttons {
-            let c = CGPoint(x: (b.box[0] + b.box[2]) / 2, y: (b.box[1] + b.box[3]) / 2)
-            if let center = onPlane(c), let p1 = onPlane(CGPoint(x: b.box[0], y: b.box[1])),
-               let p2 = onPlane(CGPoint(x: b.box[2], y: b.box[3])) {
-                anchors[b.id] = Anchor(center: center, corner1: p1, corner2: p2)
-            }
-        }
-        // Self-check: projected back into the photo's own frame, every pinned box
-        // must land on its photo box. If not, don't follow motion; use photo positions.
-        var worst = 0.0
-        for b in buttons {
-            guard let a = anchors[b.id] else { continue }
-            let p = projectBox(a, frame)
-            worst = max(worst, zip(p, b.box).map { abs($0 - $1) }.max() ?? 0)
-        }
-        // Live motion-following was unreliable on glossy panels in device testing, so
-        // it stays off: photo positions are exact while the phone is held still.
-        trackingOK = false
-        lastCheckError = worst
+        photoBoxes = Dictionary(buttons.map { ($0.id, $0.box) }, uniquingKeysWith: { a, _ in a })
     }
 
-    /// Whether boxes follow phone motion (self-check passed) or stay at photo positions.
-    private(set) var trackingOK = false
-    private(set) var lastCheckError = 0.0
-
-    private func portraitSize(_ frame: ARFrame) -> CGSize {
-        CGSize(width: CVPixelBufferGetHeight(frame.capturedImage), height: CVPixelBufferGetWidth(frame.capturedImage))
-    }
-
-    private func projectBox(_ a: Anchor, _ frame: ARFrame) -> [Double] {
-        let size = portraitSize(frame)
-        func project(_ p: simd_float3) -> CGPoint {
-            let v = frame.camera.projectPoint(p, orientation: .portrait, viewportSize: size)
-            return CGPoint(x: v.x / size.width * 1000, y: v.y / size.height * 1000)
-        }
-        let p1 = project(a.corner1), p2 = project(a.corner2)
-        return [Double(min(p1.x, p2.x)), Double(min(p1.y, p2.y)), Double(max(p1.x, p2.x)), Double(max(p1.y, p2.y))]
-    }
-
-    var anchoredCount: Int { anchors.count }
-
-    /// Where a button is in the current frame (0-1000 grid): follows the phone's
-    /// motion when the self-check passed, otherwise the photo position.
+    /// Where a button is now: its photo box shifted by how far the picture moved.
     func box(for id: String) -> [Double]? {
-        guard trackingOK, let a = anchors[id], let frame = latestFrame else { return photoBoxes[id] }
-        return projectBox(a, frame)
-    }
-
-    /// Raycast from a point on the portrait 0-1000 grid into the scene.
-    private func hit(_ p: CGPoint, _ frame: ARFrame) -> simd_float3? {
-        // Portrait (u, v) -> captured image's landscape normalized coords (x = v, y = 1 - u).
-        let point = CGPoint(x: p.y / 1000, y: 1 - p.x / 1000)
-        let query = frame.raycastQuery(from: point, allowing: .estimatedPlane, alignment: .any)
-        guard let result = session.raycast(query).first else { return nil }
-        let t = result.worldTransform.columns.3
-        return simd_float3(t.x, t.y, t.z)
+        guard let b = photoBoxes[id] else { return nil }
+        let dx = Double(offset.x), dy = Double(offset.y)
+        return [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy]
     }
 }

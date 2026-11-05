@@ -7,3 +7,5 @@ xcuserdata/
 DerivedData/
 devices.json
 tests/out/
+ios/build/
+uvicorn.log

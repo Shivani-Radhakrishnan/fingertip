@@ -1,104 +1,101 @@
 # Fingertip
 
-**Fingertip helps blind people use touchscreens and button panels on things like microwaves, washing machines and kiosks.** You prop your phone so it faces the panel and say what you want, like "heat for 2 minutes". It reads the panel, plans which buttons to press, guides your finger to each one, and checks that each press worked.
+Fingertip helps blind people use touch panels on things like microwaves, washing machines and kiosks.
 
-Built for the Meta Global AI Developer Hackathon (Indie track), Oct 27 – Nov 4, 2026. Everything in this repo was written during the hackathon.
+You point your phone at the panel and say what you want, like "heat for 2 minutes". The app reads the panel, works out which buttons to press, guides your finger to each one, and then checks if the press worked.
 
-## The problem
+I built this for the Meta Global AI Developer Hackathon (Indie track), Oct 27 to Nov 4, 2026. All the code here was written during the hackathon.
 
-Flat touch panels have no buttons you can feel. In Vision Australia's 2025 survey of 627 blind and low-vision people, 82% named flat or unlabelled buttons as a problem, and 67% named touchscreens with no tactile or voice option. Today people stick bumps on their appliances (which needs a sighted helper), memorize where buttons are, or call a sighted person on video.
+## Why
 
-Other tools already help part of the way. Gemini Live, Meta AI and Apple's Point and Speak can tell you what is on a panel or what is under your finger. None of them guides your finger to the button you need, plans the presses for your goal, or checks that each press worked. Fingertip tries to do that whole loop on the phone.
+Flat touch panels have no buttons you can feel. In Vision Australia's 2025 survey (627 blind and low-vision people), 82% said flat or unlabelled buttons are a problem and 67% said touchscreens with no tactile or voice option are a problem. Right now people put stick-on bumps on their appliances, memorize where the buttons are, or video call a sighted person.
+
+Some apps already help part of the way. Gemini Live, Meta AI and Apple's Point and Speak can tell you what's on a panel or what's under your finger. But they don't guide your finger to the button you need, plan the presses for what you want to do, or check that each press worked. That's the part I wanted to build.
+
+I worked on indoor navigation for blind users before this ([NavAssist](https://github.com/Shivani-Radhakrishnan/NavAssist)), and appliances kept coming up as a problem.
 
 ## How it works
 
-```
-iPhone (propped up)                     Backend (FastAPI)                    Meta models
-camera photo  ───────────────────────►  Reader: every control, incl. icons ─► Muse Spark 1.3
-                                        button center points (0-1000)
-                                        Segmenter: exact outline per button ─► SAM 3.1 (point prompts)
-voice (streamed) ────────────────────►  hands-free goal, tuned to labels ───► Muse Voice Transcribe
-                                        Planner: goal -> ordered presses ───► Muse Spark 1.3
-live camera ─► Guide (on the phone): ARKit pins buttons to the panel,
-               Apple Vision tracks the fingertip,
-               spoken words for big moves -> faster ticks -> "On it. Press."
-photo after a press ─────────────────►  Critic: before vs after -> ok / retry / wrong ─► Muse Spark Open (Baseten),
-                                        wrong -> re-plan                                  or Muse Spark 1.3 fallback
-```
+1. **Read the panel.** The phone takes a photo. Muse Spark lists every control on it, including icon-only ones (like a snowflake for defrost), with the center point of each one. It also says if the photo is bad ("move the phone closer").
+2. **Outline the buttons.** Each center point goes to SAM 3.1 as a point prompt, and SAM gives back the exact outline of that button.
+3. **Hear what you want.** Muse Voice Transcribe listens without needing a button press. It gets the panel's button names as keywords, so it hears "Defrost" correctly.
+4. **Plan.** Muse Spark turns the goal into button presses in order and says the plan out loud ("2 presses: 2 min, then Start"). If a button it needs is unreadable, it says so instead of guessing.
+5. **Guide your finger.** This part runs on the phone. Apple Vision tracks your fingertip in the camera. The app says short words for big moves ("left", "up"), then ticks and vibrates faster as you get close, then says "On it. Press." The buttons shift with the picture if your hand moves a bit.
+6. **Check.** After a press it compares a before and after photo of the panel (did the display change to 2:00?). If the press missed it tells you to press again. If the wrong thing happened it makes a new plan. This runs on Muse Spark Open through Baseten when a key is set, otherwise on Muse Spark.
 
-**Two Meta models are chained.** Muse Spark gives each button's center point, and SAM 3.1 turns that point into an exact outline. This works for icon-only buttons too, which a text prompt can't reliably target.
+Every model call returns JSON, so each step can use the last one's output directly.
 
-**Every model returns strict JSON**, so each agent's output feeds the next step directly.
+Some choices I made from reading accessibility research (VizLens, StateLens, NaviSense, HandSight):
 
-**The live loop runs on the phone.** The Meta API works on uploaded images, not live video. So fingertip tracking (Apple Vision) and anchoring (ARKit) run on the phone, with instant feedback and no cost per frame. ARKit tracks the whole room, so the hand covering a glossy panel doesn't break it. If ARKit can't find the surface, the app falls back to the photo positions, which stay valid while the phone is on a stand.
+- The phone should be propped up or held still, not held in one hand while pressing with the other.
+- Words for coarse directions, ticks for the last few centimeters.
+- Keep speech short, and don't talk over VoiceOver.
+- Never tell the user to press something you're not sure about.
 
-**Guidance follows what studies with blind users found works:** a few words for big moves, ticks and vibration that speed up near the target, then a clear press cue. The app also:
-- speaks the plan first
-- accepts "repeat", "skip" and "stop"
-- asks you to move your hand out of the way before taking a photo
-- speaks through VoiceOver when VoiceOver is on, so two voices never overlap
+There are no on-screen buttons. A blind user can't find buttons on a phone screen any more than on a microwave. So the app scans by itself when it opens, and you tap anywhere to scan or hold anywhere to talk.
 
-**Safety.** The planner is told never to guess what an unreadable button does. Instead it asks for a clearer view. The Reader says when the framing is bad ("move the phone closer") rather than inventing buttons.
+## Results
 
-**Device memory.** A panel seen before from the same spot is recognised instantly, at no cost.
+I tested the reading step on 6 appliance photos from Wikimedia Commons (credits in `tests/panels/CREDITS.md`). They're two microwaves (one with Korean labels), two washing machines (one with Chinese labels), a dishwasher touch strip, and a blurry store photo. I labelled 5 of them by hand. Run `python tests/eval.py` to repeat it.
 
-## Results so far
-
-The test ran on 6 real appliance photos from Wikimedia Commons (credits in `tests/panels/CREDITS.md`): microwaves with Korean and Dutch-style panels, two washing machines (one with Chinese labels), and a dishwasher touch strip. Five of them were labelled by hand. Run it yourself with `python tests/eval.py`.
-
-| Metric | Result |
+| | Result |
 | --- | --- |
-| Labelled controls found by the Reader | **20 / 26 (77%)** |
-| Icon-only controls found | **6 / 8 (75%)** |
-| Buttons with an exact SAM 3.1 outline | 26 of 33 detected buttons |
-| Panels where the Reader correctly flagged bad framing | the blurry, cut-off store photo (`microwave3`) |
-| Time to read a panel (Reader + SAM) | ~18.5 s average |
-| Cost to read a panel | ~$0.011 average |
+| Controls found | 20 out of 26 (77%) |
+| Icon-only controls found | 6 out of 8 (75%) |
+| Time to read a panel | about 10 to 18 s |
+| Cost to read a panel | about $0.01 |
+| Blurry photo | correctly said "move the phone closer" instead of guessing |
 
-What it missed: the Korean microwave's start, stop and power buttons (it found 4 of 7), a door-release button, a power icon on an angled, out-of-focus dishwasher strip, and a washer's prewash icon.
+What it missed: three buttons on the Korean microwave, a door-release button, a power icon on the out-of-focus dishwasher, and a prewash icon.
 
-**Tested on a real microwave (iPhone 15):** the app scans the panel, hears a spoken goal ("heat for 2 minutes"), plans the presses and starts guiding to the first button. Reading a panel takes about 10 s in Muse Spark's fastest mode.
+I also ran it on my own microwave with an iPhone 15. It scanned the panel, heard "heat for 2 minutes", made the plan and started guiding me to the first button.
 
-**Honest status, not done yet:**
-- **Live motion-following is off.** Pinning buttons in 3D with ARKit was unreliable on a glossy black panel in testing: outlines drifted. For now the app uses the photo positions, which are exact while the phone is held still or propped up.
-- **No blind testers yet.** The press checker has only been tested through the API, not across a full guided run.
-- These are the next things to fix.
+## What doesn't work yet
+
+- **Following the phone when it moves.** I tried ARKit first, but on my glossy black microwave panel the boxes drifted a lot. The current version shifts the boxes using image matching instead. It's better, but it still needs work.
+- **Fingertip tracking** isn't reliable over a dark, reflective panel.
+- **Testing with blind users.** I haven't done this yet and it's the next thing I want to do.
+- The full press, check, re-plan loop hasn't been tested end to end on a real appliance.
 
 ## Cost and privacy
 
-- Every model call is logged with its tokens, cost and latency (`backend/calls.jsonl`). The backend refuses all calls past a hard limit (default $120), because Meta's billing page can only send email alerts.
-- Images are resized to 1024px. Fixed instructions go first so prompt caching can reuse them.
-- We use Meta's Standard tier, not the cheaper Contributor tier, because the Contributor tier trains on inputs, and these photos come from people's homes.
-- We avoid payment card terminals on purpose (PINs).
+- Every API call is logged with its tokens, cost and time (`backend/calls.jsonl`). The backend also stops making calls after $120, because Meta's billing page can only send an email warning.
+- I use the normal Meta API tier, not the cheaper Contributor tier, because that one uses your inputs for training. These photos are taken inside people's homes.
+- It doesn't support card payment terminals, on purpose (PINs).
 
-## Run it
+## Running it
 
 Backend:
 
 ```
 python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
-cp backend/.env.example backend/.env     # add META_API_KEY (and optionally BASETEN_API_KEY)
+cp backend/.env.example backend/.env    # add META_API_KEY, and BASETEN_API_KEY if you have one
 cd backend && ../.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
-Quick check without a phone: `cd backend && ../.venv/bin/python smoke.py ../tests/panels/washer.jpg "start a wash"`
-
-iPhone app (iOS 17+, any iPhone; no LiDAR needed):
+To try it without a phone:
 
 ```
-brew install xcodegen && cd ios && xcodegen generate && open Fingertip.xcodeproj
+cd backend && ../.venv/bin/python smoke.py ../tests/panels/washer.jpg "start a wash"
 ```
 
-Set your signing team, run it on a device, and enter the backend address (your Mac's IP and port 8000) under the gear icon.
+iPhone app (iOS 17+, works without LiDAR):
+
+```
+brew install xcodegen
+cd ios && xcodegen generate && open Fingertip.xcodeproj
+```
+
+Set your signing team, run it on your phone, and put your Mac's address (port 8000) in the settings under the gear icon.
 
 ## Built with
 
-- **Muse Spark 1.3:** reading the panel (with grounding), planning, and the critic fallback
-- **SAM 3.1:** button outlines from point prompts
-- **Muse Voice Transcribe:** hands-free goal, with endpointing and keywords
-- **Built with Muse Spark Open:** the critic, through Baseten, when configured
-- Apple ARKit, Vision, AVFoundation, Core Haptics; FastAPI
+- Muse Spark 1.3 (reading the panel, planning, checking)
+- SAM 3.1 (button outlines from point prompts)
+- Muse Voice Transcribe (hands-free voice)
+- Built with Muse Spark Open (the press checker, through Baseten)
+- Apple ARKit, Vision, AVFoundation and Core Haptics, plus FastAPI
 
-## Credits
+## License
 
-Test photos come from Wikimedia Commons under CC BY / CC BY-SA licenses; see `tests/panels/CREDITS.md`. Research that shaped the design: VizLens (Guo et al., UIST 2016), StateLens (UIST 2019), NaviSense (ASSETS 2025), HandSight (TACCESS 2016), Vision Australia appliance survey (2025).
+MIT. Test photos are from Wikimedia Commons under CC BY and CC BY-SA licenses; see `tests/panels/CREDITS.md`.
